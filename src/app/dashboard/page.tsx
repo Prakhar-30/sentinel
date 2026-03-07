@@ -65,7 +65,7 @@ function PositionCard({
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState("");
 
-  const divBps      = Number(pos.currentDivergenceBps ?? 0n);
+  const divBps      = Number(pos.currentDivergenceBps ?? BigInt(0));
   const threshBps   = Number(pos.divergenceThresholdBps);
   const fillPct     = Math.min((divBps / threshBps) * 100, 100);
   const fillColor   = divergenceColor(divBps, threshBps);
