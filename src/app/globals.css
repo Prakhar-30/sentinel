@@ -1,26 +1,315 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── SENTINEL Design Tokens ──────────────────────────────────────────────── */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --neon-green:   #39FF14;
+  --neon-amber:   #FFB800;
+  --neon-red:     #FF2D2D;
+  --neon-cyan:    #00F5FF;
+  --bg-void:      #080808;
+  --bg-panel:     #0f0f0f;
+  --bg-raised:    #161616;
+  --border-raw:   #2a2a2a;
+  --border-neon:  #39FF14;
+  --text-primary: #e8e8e8;
+  --text-muted:   #666666;
+  --text-dim:     #3a3a3a;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ── Base ────────────────────────────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-mono), 'IBM Plex Mono', 'Courier New', monospace;
+  min-height: 100vh;
+  /* Subtle noise texture */
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* ── CRT Scanlines ───────────────────────────────────────────────────────── */
+
+.scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.05) 2px,
+    rgba(0, 0, 0, 0.05) 4px
+  );
+  pointer-events: none;
+}
+
+/* ── Neo-brutalist Panel ─────────────────────────────────────────────────── */
+
+.panel {
+  background: var(--bg-panel);
+  border: 2px solid var(--border-raw);
+  position: relative;
+}
+
+.panel-active {
+  border-color: var(--neon-green);
+  box-shadow: 0 0 0 1px var(--neon-green), inset 0 0 30px rgba(57, 255, 20, 0.03);
+}
+
+.panel-warn {
+  border-color: var(--neon-amber);
+  box-shadow: 0 0 0 1px var(--neon-amber), inset 0 0 30px rgba(255, 184, 0, 0.03);
+}
+
+.panel-danger {
+  border-color: var(--neon-red);
+  box-shadow: 0 0 0 1px var(--neon-red), inset 0 0 30px rgba(255, 45, 45, 0.04);
+}
+
+/* ── Neon text glow ──────────────────────────────────────────────────────── */
+
+.text-neon {
+  color: var(--neon-green);
+  text-shadow: 0 0 10px rgba(57, 255, 20, 0.6), 0 0 20px rgba(57, 255, 20, 0.3);
+}
+
+.text-neon-amber {
+  color: var(--neon-amber);
+  text-shadow: 0 0 10px rgba(255, 184, 0, 0.6), 0 0 20px rgba(255, 184, 0, 0.3);
+}
+
+.text-neon-red {
+  color: var(--neon-red);
+  text-shadow: 0 0 10px rgba(255, 45, 45, 0.6), 0 0 20px rgba(255, 45, 45, 0.3);
+}
+
+.text-neon-cyan {
+  color: var(--neon-cyan);
+  text-shadow: 0 0 10px rgba(0, 245, 255, 0.5), 0 0 20px rgba(0, 245, 255, 0.25);
+}
+
+/* ── SENTINEL Button ─────────────────────────────────────────────────────── */
+
+.btn-sentinel {
+  background: transparent;
+  border: 2px solid var(--neon-green);
+  color: var(--neon-green);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.6rem 1.5rem;
+  cursor: pointer;
+  transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+  position: relative;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.btn-sentinel:hover:not(:disabled) {
+  background: var(--neon-green);
+  color: #000;
+  box-shadow: 0 0 20px rgba(57, 255, 20, 0.4), 0 0 40px rgba(57, 255, 20, 0.2);
+}
+
+.btn-sentinel:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.btn-sentinel-danger {
+  border-color: var(--neon-red);
+  color: var(--neon-red);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+}
+
+.btn-sentinel-danger:hover:not(:disabled) {
+  background: var(--neon-red);
+  color: #000;
+  box-shadow: 0 0 20px rgba(255, 45, 45, 0.4);
+}
+
+.btn-sentinel-ghost {
+  border-color: var(--border-raw);
+  color: var(--text-muted);
+}
+
+.btn-sentinel-ghost:hover:not(:disabled) {
+  border-color: var(--text-muted);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+/* ── Input fields ────────────────────────────────────────────────────────── */
+
+.input-sentinel {
+  background: var(--bg-void);
+  border: 2px solid var(--border-raw);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  padding: 0.6rem 0.875rem;
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-sentinel:focus {
+  border-color: var(--neon-green);
+  box-shadow: 0 0 0 1px var(--neon-green);
+}
+
+.input-sentinel::placeholder {
+  color: var(--text-dim);
+}
+
+.input-sentinel:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Status badges ───────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid currentColor;
+}
+
+.badge-active   { color: var(--neon-green);  }
+.badge-paused   { color: var(--neon-amber);  }
+.badge-exited   { color: var(--text-muted);  }
+.badge-cancelled{ color: var(--neon-red);    }
+.badge-testnet  { color: var(--neon-cyan);   }
+
+/* ── Divergence bar ──────────────────────────────────────────────────────── */
+
+.divergence-bar {
+  height: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-raw);
+  position: relative;
+  overflow: hidden;
+}
+
+.divergence-fill {
+  height: 100%;
+  transition: width 0.4s ease, background-color 0.4s ease;
+}
+
+/* ── Ticker / data row ───────────────────────────────────────────────────── */
+
+.data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-raw);
+  font-size: 0.8rem;
+}
+
+.data-row:last-child {
+  border-bottom: none;
+}
+
+.data-label {
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+/* ── Terminal flicker animation ──────────────────────────────────────────── */
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92%       { opacity: 1; }
+  93%       { opacity: 0.4; }
+  94%       { opacity: 1; }
+  96%       { opacity: 0.6; }
+  97%       { opacity: 1; }
+}
+
+.flicker {
+  animation: flicker 8s infinite;
+}
+
+/* ── Blinking cursor ─────────────────────────────────────────────────────── */
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.cursor-blink::after {
+  content: "_";
+  animation: blink 1s step-end infinite;
+  color: var(--neon-green);
+}
+
+/* ── Pulse dot (live indicator) ──────────────────────────────────────────── */
+
+@keyframes pulse-dot {
+  0%   { box-shadow: 0 0 0 0 rgba(57, 255, 20, 0.6); }
+  70%  { box-shadow: 0 0 0 6px rgba(57, 255, 20, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(57, 255, 20, 0); }
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--neon-green);
+  animation: pulse-dot 2s infinite;
+  display: inline-block;
+}
+
+/* ── Corner accent (neo-brutal decorator) ────────────────────────────────── */
+
+.corner-accent::before,
+.corner-accent::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--neon-green);
+  border-style: solid;
+}
+
+.corner-accent::before {
+  top: -2px;
+  left: -2px;
+  border-width: 2px 0 0 2px;
+}
+
+.corner-accent::after {
+  bottom: -2px;
+  right: -2px;
+  border-width: 0 2px 2px 0;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar          { width: 6px; height: 6px; }
+::-webkit-scrollbar-track    { background: var(--bg-void); }
+::-webkit-scrollbar-thumb    { background: var(--border-raw); }
+::-webkit-scrollbar-thumb:hover { background: var(--neon-green); }
+
+/* ── Selection ────────────────────────────────────────────────────────────── */
+
+::selection {
+  background: rgba(57, 255, 20, 0.2);
+  color: var(--neon-green);
 }

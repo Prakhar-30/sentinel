@@ -1,65 +1,574 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { useAccount } from "wagmi";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
+
+// ── Typing animation hook ─────────────────────────────────────────────────────
+
+function useTypingEffect(lines: string[], speed = 38) {
+  const [displayed, setDisplayed] = useState<string[]>([]);
+  const [currentLine, setCurrentLine] = useState(0);
+  const [currentChar, setCurrentChar] = useState(0);
+  const [done, setDone] = useState(false);
+  const linesRef = useRef(lines);
+
+  useEffect(() => {
+    if (done) return;
+    if (currentLine >= linesRef.current.length) { setDone(true); return; }
+
+    // Add new empty line slot only when starting a new line
+    if (currentChar === 0) {
+      setDisplayed(p => {
+        if (p.length <= currentLine) return [...p, ""];
+        return p;
+      });
+      return; // let state settle before typing
+    }
+
+    if (currentChar <= linesRef.current[currentLine].length) {
+      const t = setTimeout(() => {
+        setDisplayed(p => {
+          const n = [...p];
+          n[currentLine] = linesRef.current[currentLine].slice(0, currentChar);
+          return n;
+        });
+        setCurrentChar(c => c + 1);
+      }, speed);
+      return () => clearTimeout(t);
+    } else {
+      const t = setTimeout(() => {
+        setCurrentLine(l => l + 1);
+        setCurrentChar(0);
+      }, 320);
+      return () => clearTimeout(t);
+    }
+  }, [currentLine, currentChar, done, speed]);
+
+  return { displayed, done };
+}
+
+// ── Animated counter ──────────────────────────────────────────────────────────
+
+function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
+  const [val, setVal] = useState(0);
+  const ref = useRef<HTMLSpanElement>(null);
+  const started = useRef(false);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting || started.current) return;
+      started.current = true;
+      obs.disconnect();
+      let cur = 0;
+      const step = Math.ceil(target / 60);
+      const t = setInterval(() => {
+        cur = Math.min(cur + step, target);
+        setVal(cur);
+        if (cur >= target) clearInterval(t);
+      }, 22);
+    });
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, [target]);
+
+  return <span ref={ref}>{val.toLocaleString()}{suffix}</span>;
+}
+
+// ── Divergence demo visualiser ────────────────────────────────────────────────
+
+function DivergenceDemo() {
+  const [bps, setBps] = useState(0);
+  const threshold = 2000;
+  const started = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    let v = 0;
+    const t = setInterval(() => {
+      v = Math.min(v + 55, 8750);
+      setBps(v);
+      if (v >= 8750) clearInterval(t);
+    }, 30);
+    return () => clearInterval(t);
+  }, []);
+
+  const pct = Math.min((bps / 10000) * 100, 100);
+  const thresholdPct = (threshold / 10000) * 100;
+  const breached = bps >= threshold;
+
+  const fillColor = breached ? "#FF2D2D" : bps > 1200 ? "#FFB800" : "#39FF14";
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="panel p-5 corner-accent font-mono text-xs space-y-3">
+      <div className="flex justify-between items-center">
+        <span className="text-[#666] tracking-widest uppercase">RESERVE RATIO DIVERGENCE</span>
+        <span
+          className="font-bold text-sm"
+          style={{ color: fillColor, textShadow: `0 0 10px ${fillColor}60` }}
+        >
+          {(bps / 100).toFixed(2)}%
+        </span>
+      </div>
+
+      {/* Bar */}
+      <div className="divergence-bar">
+        <div
+          className="divergence-fill"
+          style={{ width: `${pct}%`, background: fillColor }}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+        {/* Threshold marker */}
+        <div
+          className="absolute top-0 bottom-0 w-px bg-[#FFB800]"
+          style={{ left: `${thresholdPct}%` }}
+        />
+      </div>
+
+      <div className="flex justify-between text-[10px] text-[#444]">
+        <span>0%</span>
+        <span style={{ color: "#FFB800", marginLeft: `${thresholdPct - 12}%` }}>
+          ▲ THRESHOLD 20%
+        </span>
+        <span>100%</span>
+      </div>
+
+      {breached && (
+        <div className="text-[#FF2D2D] text-[11px] tracking-widest animate-pulse border border-[#FF2D2D] px-3 py-1.5 text-center">
+          ⚠ THRESHOLD BREACHED — EXIT TRIGGERED — 8750 BPS
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
+        {[
+          ["ENTRY RATIO",   "1.000"],
+          ["CURRENT RATIO", "1.875"],
+          ["DIVERGENCE",    "8750 bps"],
+          ["STATUS",        breached ? "EXITING" : "MONITORING"],
+        ].map(([k, v]) => (
+          <div key={k} className="flex justify-between border-b border-[#1a1a1a] pb-1">
+            <span className="text-[#555]">{k}</span>
+            <span style={{ color: k === "STATUS" && breached ? "#FF2D2D" : "#e8e8e8" }}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── How it works steps ────────────────────────────────────────────────────────
+
+const STEPS = [
+  {
+    num: "01",
+    title: "DEPLOY YOUR CONTRACT",
+    body: "Each user deploys their own private instance of the callback contract on Sepolia. Isolated position management — no shared state, no shared risk.",
+    icon: "⬡",
+  },
+  {
+    num: "02",
+    title: "REGISTER A POSITION",
+    body: "Specify your Uniswap V2 pair, the LP token amount to protect, and your divergence threshold in basis points. The entry reserve snapshot is taken on-chain at registration time.",
+    icon: "◈",
+  },
+  {
+    num: "03",
+    title: "REACTIVE NETWORK WATCHES",
+    body: "Your Reactive contract on Lasna subscribes to the pair's Sync events. Every on-chain swap is evaluated. Divergence is computed via cross-multiplied reserve ratios — no oracles, no off-chain runners.",
+    icon: "◎",
+  },
+  {
+    num: "04",
+    title: "AUTO-EXIT ON BREACH",
+    body: "When divergence exceeds your threshold, the Reactive contract fires a callback. Your LP tokens are pulled from your wallet, burned via the Uniswap V2 router, and both tokens are returned to you. Zero manual intervention.",
+    icon: "◆",
+  },
+];
+
+// ── IL explainer data ─────────────────────────────────────────────────────────
+
+const IL_TABLE = [
+  { price_change: "±10%",  il: "0.11%"  },
+  { price_change: "±25%",  il: "0.60%"  },
+  { price_change: "±50%",  il: "2.02%"  },
+  { price_change: "±75%",  il: "5.02%"  },
+  { price_change: "±100%", il: "5.72%"  },
+  { price_change: "±200%", il: "13.40%" },
+  { price_change: "±500%", il: "25.46%" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function LandingPage() {
+  const { isConnected } = useAccount();
+
+  const bootLines = [
+    "> SENTINEL v1.0.0 — initialising...",
+    "> loading reactive network interface...",
+    "> connecting to ethereum sepolia...",
+    "> IL protection module: ONLINE",
+    "> awaiting operator input_",
+  ];
+  const { displayed } = useTypingEffect(bootLines, 32);
+
+  return (
+    <div className="min-h-screen pt-14">
+
+      {/* ── HERO ─────────────────────────────────────────────────────────── */}
+      <section className="relative min-h-[92vh] flex flex-col items-center justify-center px-4 overflow-hidden">
+
+        {/* Background grid */}
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              "linear-gradient(#39FF14 1px, transparent 1px), linear-gradient(90deg, #39FF14 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
+
+        {/* Vignette */}
+        <div className="absolute inset-0 bg-radial-[ellipse_at_center] from-transparent via-transparent to-[#080808] opacity-80 pointer-events-none" />
+
+        {/* Terminal boot sequence */}
+        <div className="w-full max-w-2xl mb-10 panel p-5 text-xs text-[#39FF14] space-y-1">
+          <div className="flex items-center gap-2 mb-3 pb-3 border-b border-[#1e1e1e]">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#FF2D2D]" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[#FFB800]" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[#39FF14]" />
+            <span className="ml-2 text-[#444] tracking-widest text-[10px]">SENTINEL — TERMINAL</span>
+          </div>
+          {displayed.map((line, i) => (
+            <div key={i} className="leading-relaxed">
+              {line}
+              {i === displayed.length - 1 && (
+                <span className="inline-block w-2 h-3.5 bg-[#39FF14] ml-0.5 animate-blink align-bottom" />
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Main heading */}
+        <div className="text-center max-w-4xl mx-auto z-10">
+          <div className="text-[10px] tracking-[0.4em] text-[#39FF14] mb-4 uppercase">
+            Reactive Smart Contract System
+          </div>
+
+          <h1 className="text-5xl sm:text-7xl font-bold tracking-tight leading-none mb-4">
+            <span className="text-[#e8e8e8]">STOP LOSING</span>
+            <br />
+            <span
+              className="text-neon-green"
+              style={{ textShadow: "0 0 40px rgba(57,255,20,0.4), 0 0 80px rgba(57,255,20,0.15)" }}
+            >
+              TO THE POOL
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="text-[#666] text-base sm:text-lg max-w-2xl mx-auto leading-relaxed mt-6 mb-10 font-mono">
+            SENTINEL monitors your Uniswap V2 LP position in real time and{" "}
+            <span className="text-[#e8e8e8]">automatically removes your liquidity</span>{" "}
+            the moment reserve divergence exceeds your threshold.{" "}
+            <span className="text-[#39FF14]">No bots. No oracles. No manual intervention.</span>
+          </p>
+
+          {/* CTA */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            {isConnected ? (
+              <Link href="/protect" className="btn-sentinel text-sm px-8 py-3">
+                DEPLOY &amp; PROTECT
+              </Link>
+            ) : (
+              <ConnectButton.Custom>
+                {({ openConnectModal }) => (
+                  <button
+                    onClick={openConnectModal}
+                    className="btn-sentinel text-sm px-8 py-3"
+                  >
+                    CONNECT WALLET
+                  </button>
+                )}
+              </ConnectButton.Custom>
+            )}
+            <Link href="/dashboard" className="btn-sentinel btn-sentinel-ghost text-sm px-8 py-3">
+              VIEW DASHBOARD
+            </Link>
+          </div>
+
+          {/* Testnet notice */}
+          <div className="mt-6 text-[10px] tracking-widest text-[#444]">
+            ◈ RUNNING ON ETHEREUM SEPOLIA × REACTIVE LASNA TESTNET ◈
+          </div>
+        </div>
+
+        {/* Scroll indicator */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-[#333] text-[10px] tracking-widest">
+          <span>SCROLL</span>
+          <div className="w-px h-8 bg-[#333]" />
+        </div>
+      </section>
+
+      {/* ── STATS BAR ────────────────────────────────────────────────────── */}
+      <section className="border-y-2 border-[#1e1e1e] bg-[#0a0a0a]">
+        <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-2 md:grid-cols-4 gap-0 divide-x-0 md:divide-x divide-[#1e1e1e]">
+          {[
+            { label: "CHAINS SUPPORTED",   value: 1,    suffix: ""    },
+            { label: "BLOCK LATENCY",      value: 1,    suffix: " blk" },
+            { label: "MANUAL OPS NEEDED",  value: 0,    suffix: ""    },
+            { label: "MAX DIVERGENCE BPS", value: 9999, suffix: ""    },
+          ].map(({ label, value, suffix }) => (
+            <div key={label} className="px-6 py-3 text-center">
+              <div className="text-2xl font-bold text-neon-green mb-1">
+                <Counter target={value} suffix={suffix} />
+              </div>
+              <div className="text-[10px] text-[#555] tracking-[0.15em]">{label}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── DIVERGENCE DEMO ──────────────────────────────────────────────── */}
+      <section className="max-w-7xl mx-auto px-4 py-24 grid md:grid-cols-2 gap-12 items-center">
+        <div>
+          <div className="text-[10px] tracking-[0.35em] text-[#39FF14] mb-3 uppercase">
+            Live Demo Replay — June 2025 Test
+          </div>
+          <h2 className="text-3xl font-bold text-[#e8e8e8] mb-5 leading-tight">
+            WATCH THE BREACH.<br />
+            <span className="text-[#39FF14]">WATCH THE EXIT.</span>
+          </h2>
+          <p className="text-[#666] text-sm leading-relaxed mb-6">
+            In our test execution, a 5 TOKEN0 swap shifted reserves from{" "}
+            <span className="text-[#e8e8e8]">10:10</span> to{" "}
+            <span className="text-[#e8e8e8]">15:8</span>, causing{" "}
+            <span className="text-[#FF2D2D]">8750 bps (87.5%) divergence</span> — well beyond the
+            2000 bps threshold. SENTINEL auto-exited the position within the same block.
+          </p>
+          <div className="space-y-2 text-xs text-[#555] font-mono">
+            <div className="data-row">
+              <span className="data-label">ENTRY RESERVES</span>
+              <span className="text-[#e8e8e8]">10e18 / 10e18</span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">POST-SWAP RESERVES</span>
+              <span className="text-[#e8e8e8]">15e18 / 8e18</span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">THRESHOLD</span>
+              <span className="text-[#FFB800]">2000 bps (20%)</span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">ACTUAL DIVERGENCE</span>
+              <span className="text-[#FF2D2D]">8750 bps (87.5%)</span>
+            </div>
+            <div className="data-row">
+              <span className="data-label">TRIGGER STATUS</span>
+              <span className="text-[#39FF14]">BREACHED — AUTO-EXITED</span>
+            </div>
+          </div>
+        </div>
+
+        <DivergenceDemo />
+      </section>
+
+      {/* ── HOW IT WORKS ─────────────────────────────────────────────────── */}
+      <section className="border-t-2 border-[#1a1a1a] bg-[#0a0a0a] py-24 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="text-[10px] tracking-[0.35em] text-[#39FF14] mb-3">PROTOCOL ARCHITECTURE</div>
+            <h2 className="text-3xl font-bold text-[#e8e8e8]">HOW SENTINEL WORKS</h2>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-px bg-[#1a1a1a]">
+            {STEPS.map((s, i) => (
+              <div
+                key={s.num}
+                className="bg-[#0a0a0a] p-7 relative group hover:bg-[#0f0f0f] transition-colors"
+              >
+                {/* Step number */}
+                <div className="text-[60px] font-bold text-[#111] leading-none mb-4 select-none group-hover:text-[#161616] transition-colors">
+                  {s.num}
+                </div>
+                <div className="text-xl text-[#39FF14] mb-3">{s.icon}</div>
+                <h3 className="text-sm font-bold tracking-widest text-[#e8e8e8] mb-3">{s.title}</h3>
+                <p className="text-xs text-[#555] leading-relaxed">{s.body}</p>
+
+                {/* Connector arrow */}
+                {i < STEPS.length - 1 && (
+                  <div className="hidden lg:block absolute top-1/2 -right-3 text-[#333] text-lg z-10">
+                    ›
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── IL REFERENCE TABLE ───────────────────────────────────────────── */}
+      <section className="max-w-7xl mx-auto px-4 py-24 grid md:grid-cols-2 gap-16 items-start">
+        <div>
+          <div className="text-[10px] tracking-[0.35em] text-[#39FF14] mb-3">IMPERMANENT LOSS REFERENCE</div>
+          <h2 className="text-3xl font-bold text-[#e8e8e8] mb-5 leading-tight">
+            KNOW YOUR<br />
+            <span className="text-[#FFB800]">EXPOSURE</span>
+          </h2>
+          <p className="text-[#666] text-sm leading-relaxed mb-6">
+            Impermanent loss is the divergence between holding tokens and providing them as liquidity. The wider
+            the price move, the worse the loss. Set your SENTINEL threshold to exit before it compounds.
+          </p>
+          <p className="text-[#555] text-xs leading-relaxed">
+            IL is calculated as: <span className="text-[#e8e8e8]">2√p/(1+p) − 1</span> where{" "}
+            <span className="text-[#e8e8e8]">p</span> is the price ratio between entry and current.
+            SENTINEL monitors reserve ratio divergence as a real-time proxy for this.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="panel">
+          <div className="px-5 py-3 border-b border-[#1e1e1e] flex justify-between text-[10px] text-[#444] tracking-widest">
+            <span>PRICE CHANGE</span>
+            <span>IL LOSS</span>
+          </div>
+          {IL_TABLE.map(({ price_change, il }) => (
+            <div key={price_change} className="data-row px-5">
+              <span className="data-label">{price_change}</span>
+              <span className="text-[#e8e8e8]">{il}</span>
+            </div>
+          ))}
+          <div className="px-5 py-3 text-[10px] text-[#444] border-t border-[#1e1e1e]">
+            Source: Uniswap V2 constant product formula
+          </div>
         </div>
-      </main>
+      </section>
+
+      {/* ── TWO CONTRACTS / TWO CHAINS ───────────────────────────────────── */}
+      <section className="border-t-2 border-[#1a1a1a] bg-[#0a0a0a] py-24 px-4">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="text-[10px] tracking-[0.35em] text-[#39FF14] mb-3">DUAL-CHAIN ARCHITECTURE</div>
+            <h2 className="text-3xl font-bold text-[#e8e8e8]">TWO CHAINS. ONE SYSTEM.</h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-px bg-[#1a1a1a] max-w-4xl mx-auto">
+            {[
+              {
+                chain: "ETHEREUM SEPOLIA",
+                badge: "DESTINATION CHAIN",
+                color: "#39FF14",
+                contract: "UniswapV2ILProtectionCallback",
+                points: [
+                  "Manages LP position registry",
+                  "Holds entry reserve snapshots",
+                  "Executes removeLiquidity() on breach",
+                  "Returns token0 + token1 to owner",
+                  "Pause / cancel / resume controls",
+                ],
+              },
+              {
+                chain: "REACTIVE LASNA",
+                badge: "REACTIVE CHAIN",
+                color: "#00F5FF",
+                contract: "UniswapV2ILProtectionReactive",
+                points: [
+                  "Subscribes to Uniswap V2 Sync events",
+                  "Computes divergence on every swap",
+                  "Fires Callback when threshold breached",
+                  "Dynamic pair subscribe / unsubscribe",
+                  "5-minute cooldown between triggers",
+                ],
+              },
+            ].map(({ chain, badge, color, contract, points }) => (
+              <div key={chain} className="bg-[#0a0a0a] p-8">
+                <div
+                  className="text-[10px] tracking-widest mb-1 badge"
+                  style={{ color, borderColor: color }}
+                >
+                  {badge}
+                </div>
+                <div className="text-xl font-bold text-[#e8e8e8] mt-4 mb-1">{chain}</div>
+                <div className="text-[11px] font-mono mb-5" style={{ color }}>
+                  {contract}
+                </div>
+                <ul className="space-y-2">
+                  {points.map(p => (
+                    <li key={p} className="flex gap-3 text-xs text-[#666]">
+                      <span style={{ color }}>›</span>
+                      {p}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FINAL CTA ────────────────────────────────────────────────────── */}
+      <section className="py-28 px-4 text-center relative overflow-hidden">
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              "linear-gradient(#39FF14 1px, transparent 1px), linear-gradient(90deg, #39FF14 1px, transparent 1px)",
+            backgroundSize: "60px 60px",
+          }}
+        />
+        <div className="relative z-10 max-w-2xl mx-auto">
+          <div className="text-[10px] tracking-[0.4em] text-[#39FF14] mb-4">READY TO PROTECT YOUR POSITION?</div>
+          <h2 className="text-4xl sm:text-5xl font-bold text-[#e8e8e8] mb-4 leading-tight">
+            SET YOUR THRESHOLD.<br />
+            <span className="text-neon-green" style={{ textShadow: "0 0 30px rgba(57,255,20,0.35)" }}>
+              WALK AWAY.
+            </span>
+          </h2>
+          <p className="text-[#555] text-sm mb-10 leading-relaxed">
+            SENTINEL watches the pool so you don't have to. Fully on-chain, fully reactive,
+            fully your contract.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            {isConnected ? (
+              <Link href="/protect" className="btn-sentinel px-10 py-3 text-sm">
+                DEPLOY &amp; PROTECT →
+              </Link>
+            ) : (
+              <ConnectButton.Custom>
+                {({ openConnectModal }) => (
+                  <button onClick={openConnectModal} className="btn-sentinel px-10 py-3 text-sm">
+                    CONNECT WALLET →
+                  </button>
+                )}
+              </ConnectButton.Custom>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ── FOOTER ───────────────────────────────────────────────────────── */}
+      <footer className="border-t-2 border-[#1a1a1a] py-8 px-4">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 text-[11px] text-[#444]">
+          <div className="flex items-center gap-2">
+            <span className="text-neon-green">◈</span>
+            <span className="tracking-widest">SENTINEL v1.0.0</span>
+          </div>
+          <div className="tracking-widest">
+            SEPOLIA × REACTIVE LASNA — TESTNET ONLY
+          </div>
+          <div className="tracking-widest">
+            BUILT ON{" "}
+            <a
+              href="https://reactive.network"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#39FF14] hover:underline"
+            >
+              REACTIVE NETWORK
+            </a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
