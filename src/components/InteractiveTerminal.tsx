@@ -1,8 +1,7 @@
 'use client';
 
 import {
-  useState, useRef, useEffect, useCallback,
-  KeyboardEvent,
+  useState, useRef, useEffect, useCallback, KeyboardEvent,
 } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -28,6 +27,38 @@ let _uid = 0;
 const mkLine = (text: string, type: LineType = 'output'): TermLine => ({
   id: _uid++, type, text,
 });
+
+const HIST_KEY  = 'sentinel:term:history';
+const LINES_KEY = 'sentinel:term:lines';
+
+function loadHist(): string[] {
+  try { return JSON.parse(sessionStorage.getItem(HIST_KEY) ?? '[]'); }
+  catch { return []; }
+}
+
+function saveHist(h: string[]) {
+  try { sessionStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, 50))); }
+  catch { /* ignore */ }
+}
+
+// We only persist line text+type, not ids (ids are regenerated on load)
+function loadLines(): TermLine[] | null {
+  try {
+    const raw = sessionStorage.getItem(LINES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { text: string; type: LineType }[];
+    return parsed.map(l => mkLine(l.text, l.type));
+  } catch { return null; }
+}
+
+function saveLines(lines: TermLine[]) {
+  try {
+    sessionStorage.setItem(
+      LINES_KEY,
+      JSON.stringify(lines.map(l => ({ text: l.text, type: l.type })))
+    );
+  } catch { /* ignore */ }
+}
 
 // ── Boot sequence ─────────────────────────────────────────────────────────────
 
@@ -59,34 +90,37 @@ const COLOR: Record<LineType, string> = {
 export default function InteractiveTerminal() {
   const router = useRouter();
 
-  const [lines,   setLines]   = useState<TermLine[]>(BOOT);
+  const [lines,   setLines]   = useState<TermLine[]>(() => loadLines() ?? BOOT);
   const [input,   setInput]   = useState('');
-  const [hist,    setHist]    = useState<string[]>([]);
+  const [hist,    setHist]    = useState<string[]>(() => loadHist());
   const [histIdx, setHistIdx] = useState(-1);
   const [ready,   setReady]   = useState(false);
 
-  // scrollBoxRef scrolls only the terminal div — never the page
   const scrollBoxRef = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLInputElement>(null);
 
-  // Short boot delay before enabling input
   useEffect(() => {
     const t = setTimeout(() => setReady(true), 400);
     return () => clearTimeout(t);
   }, []);
 
-  // Scroll only the terminal's internal div, not the page
+  // Scroll only the terminal box
   useEffect(() => {
     const box = scrollBoxRef.current;
     if (!box) return;
     box.scrollTop = box.scrollHeight;
   }, [lines]);
 
+  // Persist lines to sessionStorage whenever they change
+  useEffect(() => {
+    saveLines(lines);
+  }, [lines]);
+
   const push = useCallback((incoming: TermLine[]) => {
     setLines(prev => [...prev, ...incoming]);
   }, []);
 
-  // ── Command definitions ───────────────────────────────────────────────────
+  // ── Commands ──────────────────────────────────────────────────────────────
 
   const COMMANDS: Cmd[] = [
 
@@ -95,19 +129,18 @@ export default function InteractiveTerminal() {
       description: 'List all commands',
       handler: () => [
         mkLine('', 'blank'),
-        mkLine('┌──────────────────────────────────────────────────────┐', 'system'),
-        mkLine('│           SENTINEL COMMAND INTERFACE                 │', 'system'),
-        mkLine('├───────────────────────────┬──────────────────────────┤', 'system'),
-        mkLine('│  deploy sentinel          │  Deploy new contracts    │', 'output'),
-        mkLine('│  connect sentinel         │  Connect existing order  │', 'output'),
-        mkLine('│  show sentinel            │  Open your dashboard     │', 'output'),
-        mkLine('│  status                   │  Network health check    │', 'output'),
-        mkLine('│  version                  │  Build info              │', 'output'),
-        mkLine('│  clear                    │  Wipe terminal           │', 'output'),
-        mkLine('│  help                     │  This menu               │', 'output'),
-        mkLine('└───────────────────────────┴──────────────────────────┘', 'system'),
+        mkLine('  AVAILABLE COMMANDS', 'system'),
+        mkLine('  ──────────────────────────────────────────', 'system'),
+        mkLine('  deploy sentinel    Deploy new contracts', 'output'),
+        mkLine('  connect sentinel   Connect existing order', 'output'),
+        mkLine('  show sentinel      Open your dashboard', 'output'),
+        mkLine('  status             Network health check', 'output'),
+        mkLine('  version            Build info', 'output'),
+        mkLine('  clear              Wipe terminal', 'output'),
+        mkLine('  help               This menu', 'output'),
+        mkLine('  ──────────────────────────────────────────', 'system'),
         mkLine('', 'blank'),
-        mkLine('Tip: TAB to autocomplete  •  ↑↓ for history', 'warn'),
+        mkLine('  TAB autocomplete  •  ↑↓ history', 'warn'),
         mkLine('', 'blank'),
       ],
     },
@@ -170,14 +203,15 @@ export default function InteractiveTerminal() {
       description: 'Show network and chain status',
       handler: () => [
         mkLine('', 'blank'),
-        mkLine('┌─ NETWORK STATUS ─────────────────────────────────────┐', 'system'),
-        mkLine('│  Sepolia Testnet          [ ACTIVE ]  11155111       │', 'success'),
-        mkLine('│  Reactive Lasna           [ ACTIVE ]  5318007        │', 'success'),
-        mkLine('│  Callback Proxy           [ LOADED ]                 │', 'success'),
-        mkLine('│  Uniswap V2 Router        [ READY  ]                 │', 'success'),
-        mkLine('│  Event Listener           [ ONLINE ]                 │', 'success'),
-        mkLine('│  RPC Latency              < 120ms                    │', 'output'),
-        mkLine('└──────────────────────────────────────────────────────┘', 'system'),
+        mkLine('  NETWORK STATUS', 'system'),
+        mkLine('  ──────────────────────────────────────────', 'system'),
+        mkLine('  Sepolia Testnet    ACTIVE   11155111', 'success'),
+        mkLine('  Reactive Lasna     ACTIVE   5318007', 'success'),
+        mkLine('  Callback Proxy     LOADED', 'success'),
+        mkLine('  Uniswap V2 Router  READY', 'success'),
+        mkLine('  Event Listener     ONLINE', 'success'),
+        mkLine('  RPC Latency        < 120ms', 'output'),
+        mkLine('  ──────────────────────────────────────────', 'system'),
         mkLine('', 'blank'),
       ],
     },
@@ -201,6 +235,7 @@ export default function InteractiveTerminal() {
       description: 'Clear terminal output',
       handler: () => {
         setLines([]);
+        saveLines([]);
         return [];
       },
     },
@@ -214,7 +249,9 @@ export default function InteractiveTerminal() {
 
     push([mkLine(`sentinel ~$ ${raw}`, 'input')]);
 
-    setHist(h => [raw, ...h.slice(0, 49)]);
+    const newHist = [raw, ...hist.filter(h => h !== raw).slice(0, 49)];
+    setHist(newHist);
+    saveHist(newHist);
     setHistIdx(-1);
 
     const sorted = [...COMMANDS].sort(
@@ -224,9 +261,7 @@ export default function InteractiveTerminal() {
     );
 
     const matched = sorted.find(cmd =>
-      cmd.aliases.some(
-        alias => trimmed === alias || trimmed.startsWith(alias + ' ')
-      )
+      cmd.aliases.some(alias => trimmed === alias || trimmed.startsWith(alias + ' '))
     );
 
     if (matched) {
@@ -244,7 +279,7 @@ export default function InteractiveTerminal() {
       ]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [push, router]);
+  }, [push, router, hist]);
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
 
@@ -297,10 +332,16 @@ export default function InteractiveTerminal() {
         </span>
       </div>
 
-      {/* Output area — overflow-y-auto here, NOT scrollIntoView on page */}
+      {/* Output area — user resizable vertically */}
       <div
         ref={scrollBoxRef}
-        className="bg-[#080808] border border-[#2a2a2a] border-t border-t-[#39FF14] p-4 h-72 overflow-y-auto font-mono text-xs leading-relaxed cursor-text"
+        className="bg-[#080808] border border-[#2a2a2a] border-t border-t-[#39FF14] p-3 overflow-y-auto font-mono text-xs leading-relaxed cursor-text"
+        style={{
+          minHeight: '180px',
+          height:    '220px',
+          maxHeight: '70vh',
+          resize:    'vertical',
+        }}
       >
         {lines.map(l => (
           <div
@@ -311,7 +352,6 @@ export default function InteractiveTerminal() {
           </div>
         ))}
 
-        {/* Input row */}
         {ready && (
           <div className="flex items-center mt-1">
             <span className="text-[#39FF14] mr-2 flex-shrink-0 select-none">
@@ -340,7 +380,7 @@ export default function InteractiveTerminal() {
         <span><span className="text-[#555]">TAB</span> — autocomplete</span>
         <span><span className="text-[#555]">↑ ↓</span> — history</span>
         <span><span className="text-[#555]">ENTER</span> — execute</span>
-        <span className="ml-auto text-[#2a2a2a]">try: deploy sentinel</span>
+        <span className="ml-auto text-[#2a2a2a]">drag corner to resize</span>
       </div>
     </div>
   );
