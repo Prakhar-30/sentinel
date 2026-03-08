@@ -1,68 +1,145 @@
 /**
- * SENTINEL — Contract Address Store
+ * SENTINEL — useContractStore
  *
- * Persists the user's deployed callback and reactive contract addresses
- * in localStorage, keyed by wallet address so each user has their own slot.
- * No database needed — everything lives in the browser tied to the wallet.
+ * Persists deployed contract addresses for a wallet.
+ * Source of truth priority: localStorage (instant) → Supabase DB (cross-device)
+ *
+ * On first load: checks DB for saved contracts so users don't lose their
+ * addresses when switching devices or clearing local storage.
  */
+
+"use client";
 
 import { useState, useEffect, useCallback } from "react";
 
 export interface ContractAddresses {
-  callbackAddress: string;
-  reactiveAddress: string;
-  deployedAt: number; // unix ms
-  deployedOnChainId: number;
-  /** The block the callback was deployed at — used as startBlock for event scans */
-  callbackDeployBlock: number;
+  callbackAddress:      string;
+  reactiveAddress:      string;
+  callbackDeployBlock:  number;
 }
 
-const STORE_KEY = (wallet: string) => `sentinel:contracts:${wallet.toLowerCase()}`;
+const LS_KEY = (wallet: string, chainId: number) =>
+  `sentinel_contracts_${wallet.toLowerCase()}_${chainId}`;
 
-export function useContractStore(walletAddress?: string) {
-  const [addresses, setAddresses] = useState<ContractAddresses | null>(null);
-  const [loaded, setLoaded] = useState(false);
+// ── Save to DB (fire-and-forget) ──────────────────────────────────────────
+async function saveToDb(
+  wallet: string,
+  chainId: number,
+  addresses: ContractAddresses,
+) {
+  try {
+    await fetch("/api/contracts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        wallet,
+        chainId,
+        callbackAddress:     addresses.callbackAddress,
+        reactiveAddress:     addresses.reactiveAddress,
+        callbackDeployBlock: addresses.callbackDeployBlock,
+      }),
+    });
+  } catch (e) {
+    console.warn("[useContractStore] DB save failed (non-fatal):", e);
+  }
+}
 
-  // Load from localStorage on mount / wallet change
-  useEffect(() => {
-    if (!walletAddress) { setAddresses(null); setLoaded(true); return; }
-    try {
-      const raw = localStorage.getItem(STORE_KEY(walletAddress));
-      setAddresses(raw ? JSON.parse(raw) : null);
-    } catch {
-      setAddresses(null);
-    }
-    setLoaded(true);
-  }, [walletAddress]);
-
-  const save = useCallback((data: ContractAddresses) => {
-    if (!walletAddress) return;
-    localStorage.setItem(STORE_KEY(walletAddress), JSON.stringify(data));
-    setAddresses(data);
-  }, [walletAddress]);
-
-  const clear = useCallback(() => {
-    if (!walletAddress) return;
-    localStorage.removeItem(STORE_KEY(walletAddress));
-    setAddresses(null);
-  }, [walletAddress]);
-
-  /** Allow user to manually input existing contract addresses */
-  const setManual = useCallback((
-    callbackAddress: string,
-    reactiveAddress: string,
-    chainId: number,
-    deployBlock = 0,
-  ) => {
-    const data: ContractAddresses = {
-      callbackAddress,
-      reactiveAddress,
-      deployedAt: Date.now(),
-      deployedOnChainId: chainId,
-      callbackDeployBlock: deployBlock,
+// ── Load from DB ──────────────────────────────────────────────────────────
+async function loadFromDb(
+  wallet: string,
+  chainId: number,
+): Promise<ContractAddresses | null> {
+  try {
+    const res = await fetch(`/api/contracts?wallet=${wallet}&chainId=${chainId}`);
+    if (!res.ok) return null;
+    const { contracts } = await res.json();
+    if (!contracts?.length) return null;
+    const c = contracts[0];
+    return {
+      callbackAddress:     c.callback_address,
+      reactiveAddress:     c.reactive_address ?? "",
+      callbackDeployBlock: c.callback_deploy_block ?? 0,
     };
-    save(data);
-  }, [save]);
+  } catch {
+    return null;
+  }
+}
+
+// ── Hook ───────────────────────────────────────────────────────────────────
+export function useContractStore(
+  wallet?: string,
+  chainId = 11155111,
+) {
+  const [addresses, setAddresses] = useState<ContractAddresses | null>(null);
+  const [loaded,    setLoaded]    = useState(false);
+
+  // ── Initial load: localStorage first, then DB ──────────────────────────
+  useEffect(() => {
+    if (!wallet) { setLoaded(true); return; }
+
+    const key = LS_KEY(wallet, chainId);
+    const raw = typeof window !== "undefined" ? localStorage.getItem(key) : null;
+
+    if (raw) {
+      try {
+        setAddresses(JSON.parse(raw));
+        setLoaded(true);
+        // Also try to hydrate from DB in background (in case user has newer data)
+        loadFromDb(wallet, chainId).then(dbData => {
+          if (dbData) {
+            setAddresses(dbData);
+            localStorage.setItem(key, JSON.stringify(dbData));
+          }
+        });
+        return;
+      } catch {}
+    }
+
+    // No local data — try DB
+    loadFromDb(wallet, chainId).then(dbData => {
+      if (dbData) {
+        setAddresses(dbData);
+        localStorage.setItem(key, JSON.stringify(dbData));
+      }
+      setLoaded(true);
+    });
+  }, [wallet, chainId]);
+
+  // ── Save ───────────────────────────────────────────────────────────────
+  const save = useCallback(
+    (addr: ContractAddresses) => {
+      setAddresses(addr);
+      if (!wallet) return;
+      const key = LS_KEY(wallet, chainId);
+      localStorage.setItem(key, JSON.stringify(addr));
+      saveToDb(wallet, chainId, addr);
+    },
+    [wallet, chainId],
+  );
+
+  // ── Clear ──────────────────────────────────────────────────────────────
+  const clear = useCallback(() => {
+    setAddresses(null);
+    if (!wallet) return;
+    localStorage.removeItem(LS_KEY(wallet, chainId));
+  }, [wallet, chainId]);
+
+  // ── setManual — convenience wrapper used by ManualConnectPanel ─────────
+  const setManual = useCallback(
+    (
+      callbackAddress: string,
+      reactiveAddress: string,
+      _chainId: number,
+      deployBlock = 0,
+    ) => {
+      save({
+        callbackAddress,
+        reactiveAddress,
+        callbackDeployBlock: deployBlock,
+      });
+    },
+    [save],
+  );
 
   return { addresses, loaded, save, clear, setManual };
 }

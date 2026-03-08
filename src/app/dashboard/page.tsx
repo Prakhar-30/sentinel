@@ -6,12 +6,13 @@ import { useAccount, useChainId } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { ethers } from "ethers";
 import { useContractStore } from "@/hooks/useContractStore";
-import { usePositions, LPPosition, ExitEvent } from "@/hooks/usePositions";
+import { useDbPositions } from "@/hooks/useDbPositions";
+import { LPPosition, ExitEvent } from "@/hooks/usePositions";
 import { CALLBACK_ABI } from "@/config/abis";
 import { getDestinationChain } from "@/config/chains.config";
 import {
   shortAddr, formatUnits, bpsToPercent, divergenceColor,
-  clampBps, formatTs, timeAgo, explorerAddr, explorerTx, computeIL,
+  formatTs, timeAgo, explorerAddr, explorerTx, computeIL,
 } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50,32 +51,26 @@ function StatusBadge({ status }: { status: LPPosition["status"] }) {
 // Position Card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PositionCard({
-  pos,
-  callbackAddress,
-  chainId,
-  onAction,
-}: {
+function PositionCard({ pos, callbackAddress, chainId, onAction }: {
   pos: LPPosition;
   callbackAddress: string;
   chainId: number;
   onAction: () => void;
 }) {
-  const chain    = getDestinationChain(chainId);
-  const [busy, setBusy]   = useState(false);
-  const [err, setErr]     = useState("");
+  const chain           = getDestinationChain(chainId);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState("");
 
-  const divBps      = Number(pos.currentDivergenceBps ?? BigInt(0));
-  const threshBps   = Number(pos.divergenceThresholdBps);
-  const fillPct     = Math.min((divBps / threshBps) * 100, 100);
-  const fillColor   = divergenceColor(divBps, threshBps);
-  const ilPct       = computeIL(pos.entryReserve0, pos.entryReserve1, pos.entryReserve0, pos.entryReserve1);
+  const divBps    = Number(pos.currentDivergenceBps ?? BigInt(0));
+  const threshBps = Number(pos.divergenceThresholdBps);
+  const fillPct   = Math.min((divBps / threshBps) * 100, 100);
+  const fillColor = divergenceColor(divBps, threshBps);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _ilPct    = computeIL(pos.entryReserve0, pos.entryReserve1, pos.entryReserve0, pos.entryReserve1);
 
   const panelClass =
-    pos.status === "Active"    ? "panel panel-active" :
-    pos.status === "Paused"    ? "panel panel-warn"   :
-    pos.status === "Exited"    ? "panel"               :
-                                 "panel";
+    pos.status === "Active" ? "panel panel-active" :
+    pos.status === "Paused" ? "panel panel-warn"   : "panel";
 
   const callAction = async (fn: string) => {
     setBusy(true); setErr("");
@@ -97,7 +92,6 @@ function PositionCard({
 
   return (
     <div className={`${panelClass} p-5 relative corner-accent`}>
-      {/* Header row */}
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="text-[10px] text-[#555] tracking-widest mb-1">POSITION #{pos.id}</div>
@@ -111,7 +105,6 @@ function PositionCard({
         <StatusBadge status={pos.status} />
       </div>
 
-      {/* Divergence bar — only for active positions */}
       {pos.status === "Active" && pos.currentDivergenceBps !== undefined && (
         <div className="mb-4">
           <div className="flex justify-between text-[10px] mb-1">
@@ -130,7 +123,6 @@ function PositionCard({
         </div>
       )}
 
-      {/* Data rows */}
       <div className="space-y-0 mb-4">
         <DataRow label="LP AMOUNT"   value={`${formatUnits(pos.lpAmount, 18, 6)} LP`} />
         <DataRow label="ENTRY R0/R1" value={
@@ -138,48 +130,32 @@ function PositionCard({
             ? (Number(pos.entryReserve0) / Number(pos.entryReserve1)).toFixed(6)
             : "—"
         } />
-        <DataRow label="THRESHOLD"   value={bpsToPercent(pos.divergenceThresholdBps)} />
-        <DataRow label="REGISTERED"  value={formatTs(pos.createdAt)} />
-        {pos.exitedAt > 0 && (
-          <DataRow label="EXITED AT" value={formatTs(pos.exitedAt)} />
-        )}
+        <DataRow label="THRESHOLD"  value={bpsToPercent(pos.divergenceThresholdBps)} />
+        <DataRow label="REGISTERED" value={formatTs(pos.createdAt)} />
+        {pos.exitedAt > 0 && <DataRow label="EXITED AT" value={formatTs(pos.exitedAt)} />}
       </div>
 
-      {/* Error */}
       {err && <div className="text-[11px] text-[#FF2D2D] mb-2">{err}</div>}
 
-      {/* Action buttons */}
       {pos.status === "Active" && (
         <div className="flex gap-2">
-          <button className="btn-sentinel btn-sentinel-ghost text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("pausePosition")} disabled={busy}>
-            PAUSE
-          </button>
-          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>
-            CANCEL
-          </button>
+          <button className="btn-sentinel btn-sentinel-ghost text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("pausePosition")} disabled={busy}>PAUSE</button>
+          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>CANCEL</button>
         </div>
       )}
-
       {pos.status === "Paused" && (
         <div className="flex gap-2">
-          <button className="btn-sentinel text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("resumePosition")} disabled={busy}>
-            RESUME
-          </button>
-          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>
-            CANCEL
-          </button>
+          <button className="btn-sentinel text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("resumePosition")} disabled={busy}>RESUME</button>
+          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>CANCEL</button>
         </div>
       )}
-
-      {busy && (
-        <div className="text-[10px] text-[#FFB800] animate-pulse tracking-widest mt-2">⟳ PROCESSING...</div>
-      )}
+      {busy && <div className="text-[10px] text-[#FFB800] animate-pulse tracking-widest mt-2">⟳ PROCESSING...</div>}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Exit History Row
+// Exit Row
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ExitRow({ ev, explorerBase }: { ev: ExitEvent; explorerBase: string }) {
@@ -197,9 +173,7 @@ function ExitRow({ ev, explorerBase }: { ev: ExitEvent; explorerBase: string }) 
       </div>
       <div className="text-[#555] text-[10px]">
         {ev.timestamp ? timeAgo(ev.timestamp) : `blk ${ev.blockNumber}`}
-        <a href={explorerTx(explorerBase, ev.txHash)} target="_blank" rel="noopener noreferrer" className="ml-2 text-[#39FF14] hover:underline">
-          ↗
-        </a>
+        <a href={explorerTx(explorerBase, ev.txHash)} target="_blank" rel="noopener noreferrer" className="ml-2 text-[#39FF14] hover:underline">↗</a>
       </div>
     </div>
   );
@@ -209,7 +183,7 @@ function ExitRow({ ev, explorerBase }: { ev: ExitEvent; explorerBase: string }) 
 // Stats Bar
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StatsBar({ positions, exits }: { positions: LPPosition[]; exits: ExitEvent[] }) {
+function StatsBar({ positions }: { positions: LPPosition[] }) {
   const active    = positions.filter(p => p.status === "Active").length;
   const paused    = positions.filter(p => p.status === "Paused").length;
   const exited    = positions.filter(p => p.status === "Exited").length;
@@ -242,35 +216,49 @@ export default function DashboardPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const chain   = getDestinationChain(chainId);
-  const { addresses, loaded } = useContractStore(address);
+
+  // ── Both args: wallet + chainId ────────────────────────────────────────
+  const { addresses, loaded } = useContractStore(address, chainId);
+
   const [filter, setFilter] = useState<FilterTab>("all");
 
-  const { positions, exitHistory, loading, error, refresh } = usePositions(
+  // ── DB-backed hook — syncs chain → Supabase then reads DB ─────────────
+  const { positions, exitHistory, loading, error, refresh } = useDbPositions(
     addresses?.callbackAddress,
     addresses?.callbackDeployBlock,
     chainId,
+    address,
   );
 
   const filtered = filter === "all"
     ? positions
     : positions.filter(p => p.status.toLowerCase() === filter);
 
+  // ── Guard: wallet not connected ───────────────────────────────────────
   if (!isConnected) {
     return (
       <div className="min-h-screen pt-14 flex items-center justify-center px-4">
         <div className="panel p-10 text-center max-w-sm w-full corner-accent">
           <div className="text-[#39FF14] text-3xl mb-4">◎</div>
           <div className="text-sm font-bold tracking-widest mb-2">WALLET REQUIRED</div>
-          <div className="text-xs text-[#555] mb-6 leading-relaxed">
-            Connect your wallet to view your SENTINEL dashboard.
-          </div>
+          <div className="text-xs text-[#555] mb-6 leading-relaxed">Connect your wallet to view your SENTINEL dashboard.</div>
           <ConnectButton />
         </div>
       </div>
     );
   }
 
-  if (loaded && !addresses) {
+  // ── Guard: still loading from DB ──────────────────────────────────────
+  if (!loaded) {
+    return (
+      <div className="min-h-screen pt-14 flex items-center justify-center">
+        <div className="text-[#444] text-xs tracking-widest animate-pulse">LOADING CONTRACT DATA...</div>
+      </div>
+    );
+  }
+
+  // ── Guard: no contracts in DB or LS ───────────────────────────────────
+  if (!addresses) {
     return (
       <div className="min-h-screen pt-14 flex items-center justify-center px-4">
         <div className="panel p-10 text-center max-w-md w-full corner-accent">
@@ -279,53 +267,39 @@ export default function DashboardPage() {
           <div className="text-xs text-[#555] mb-6 leading-relaxed">
             Deploy your SENTINEL contracts first to start monitoring positions.
           </div>
-          <Link href="/protect" className="btn-sentinel text-xs px-6 py-3">
-            GO TO PROTECT →
-          </Link>
+          <Link href="/protect" className="btn-sentinel text-xs px-6 py-3">GO TO PROTECT →</Link>
         </div>
       </div>
     );
   }
 
+  // ── Main dashboard ────────────────────────────────────────────────────
   return (
     <div className="min-h-screen pt-14 pb-20">
 
-      {/* ── Page header ── */}
       <div className="border-b border-[#1a1a1a] bg-[#0a0a0a]">
         <div className="max-w-7xl mx-auto px-4 py-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
             <div className="text-[10px] tracking-[0.35em] text-[#39FF14] mb-2">MISSION CONTROL</div>
             <h1 className="text-3xl font-bold text-[#e8e8e8] mb-1">DASHBOARD</h1>
-            <p className="text-[#555] text-sm">
-              Live position monitor — auto-refreshes every 30s for active positions.
-            </p>
+            <p className="text-[#555] text-sm">Live position monitor — auto-refreshes every 30s for active positions.</p>
           </div>
           <div className="flex items-center gap-3">
-            {addresses && (
-              <div className="text-[10px] text-[#444] font-mono hidden sm:block">
-                CB: <span className="text-[#666]">{shortAddr(addresses.callbackAddress)}</span>
-              </div>
-            )}
-            <button
-              className="btn-sentinel btn-sentinel-ghost text-[10px] px-4 py-2"
-              onClick={refresh}
-              disabled={loading}
-            >
-              {loading ? "⟳ LOADING..." : "↺ REFRESH"}
+            <div className="text-[10px] text-[#444] font-mono hidden sm:block">
+              CB: <span className="text-[#666]">{shortAddr(addresses.callbackAddress)}</span>
+            </div>
+            <button className="btn-sentinel btn-sentinel-ghost text-[10px] px-4 py-2" onClick={refresh} disabled={loading}>
+              {loading ? "⟳ SYNCING..." : "↺ REFRESH"}
             </button>
-            <Link href="/protect" className="btn-sentinel text-[10px] px-4 py-2">
-              + NEW POSITION
-            </Link>
+            <Link href="/protect" className="btn-sentinel text-[10px] px-4 py-2">+ NEW POSITION</Link>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* Stats */}
-        <StatsBar positions={positions} exits={exitHistory} />
+        <StatsBar positions={positions} />
 
-        {/* Live indicator */}
         {positions.some(p => p.status === "Active") && (
           <div className="flex items-center gap-2 text-[11px] text-[#39FF14] mb-6 tracking-widest">
             <span className="pulse-dot" />
@@ -333,27 +307,27 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Error */}
-        {error && (
-          <div className="border border-[#FF2D2D] p-4 text-[11px] text-[#FF2D2D] mb-6">
-            {error}
+        {loading && positions.length > 0 && (
+          <div className="flex items-center gap-2 text-[11px] text-[#FFB800] mb-4 tracking-widest animate-pulse">
+            ⟳ SYNCING WITH CHAIN...
           </div>
         )}
 
-        {/* ── POSITIONS ── */}
+        {error && (
+          <div className="border border-[#FF2D2D] p-4 text-[11px] text-[#FF2D2D] mb-6">{error}</div>
+        )}
+
+        {/* LP POSITIONS */}
         <div className="mb-12">
           <div className="flex items-center justify-between mb-4">
             <SectionLabel>LP POSITIONS</SectionLabel>
-            {/* Filter tabs */}
-            <div className="flex gap-1">
+            <div className="flex gap-1 flex-wrap">
               {(["all","active","paused","exited","cancelled"] as FilterTab[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`text-[10px] px-3 py-1 tracking-widest transition-colors border
-                    ${filter === f
-                      ? "border-[#39FF14] text-[#39FF14]"
-                      : "border-[#1a1a1a] text-[#444] hover:border-[#333] hover:text-[#666]"}`}
+                    ${filter === f ? "border-[#39FF14] text-[#39FF14]" : "border-[#1a1a1a] text-[#444] hover:border-[#333] hover:text-[#666]"}`}
                 >
                   {f.toUpperCase()}
                 </button>
@@ -362,14 +336,10 @@ export default function DashboardPage() {
           </div>
 
           {loading && positions.length === 0 ? (
-            <div className="panel p-12 text-center text-[#444] text-xs tracking-widest animate-pulse">
-              SCANNING CHAIN...
-            </div>
+            <div className="panel p-12 text-center text-[#444] text-xs tracking-widest animate-pulse">SYNCING FROM CHAIN...</div>
           ) : filtered.length === 0 ? (
             <div className="panel p-12 text-center text-[#333] text-xs tracking-widest">
-              {filter === "all"
-                ? "NO POSITIONS FOUND — REGISTER ONE ON THE PROTECT PAGE"
-                : `NO ${filter.toUpperCase()} POSITIONS`}
+              {filter === "all" ? "NO POSITIONS FOUND — REGISTER ONE ON THE PROTECT PAGE" : `NO ${filter.toUpperCase()} POSITIONS`}
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -377,7 +347,7 @@ export default function DashboardPage() {
                 <PositionCard
                   key={pos.id}
                   pos={pos}
-                  callbackAddress={addresses!.callbackAddress}
+                  callbackAddress={addresses.callbackAddress}
                   chainId={chainId}
                   onAction={refresh}
                 />
@@ -386,28 +356,20 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* ── EXIT HISTORY ── */}
+        {/* EXECUTION HISTORY */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <SectionLabel>EXECUTION HISTORY</SectionLabel>
             <span className="text-[10px] text-[#444]">
-              SCANNING FROM BLOCK {addresses?.callbackDeployBlock || "latest−10000"}
+              {exitHistory.length} EXIT{exitHistory.length !== 1 ? "S" : ""} RECORDED
             </span>
           </div>
-
           {exitHistory.length === 0 ? (
-            <div className="panel p-8 text-center text-[#333] text-xs tracking-widest">
-              NO EXITS RECORDED YET
-            </div>
+            <div className="panel p-8 text-center text-[#333] text-xs tracking-widest">NO EXITS RECORDED YET</div>
           ) : (
             <div className="panel overflow-hidden">
-              {/* Header */}
               <div className="grid grid-cols-5 gap-2 px-4 py-2 border-b border-[#1a1a1a] text-[10px] text-[#444] tracking-widest">
-                <span>POS ID</span>
-                <span>PAIR</span>
-                <span>LP BURNED</span>
-                <span>RECEIVED (T0/T1)</span>
-                <span>WHEN</span>
+                <span>POS ID</span><span>PAIR</span><span>LP BURNED</span><span>RECEIVED (T0 / T1)</span><span>WHEN</span>
               </div>
               {exitHistory.map((ev, i) => (
                 <ExitRow key={i} ev={ev} explorerBase={chain.explorerUrl} />
