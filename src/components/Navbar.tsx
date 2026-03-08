@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useChainId } from "wagmi";
@@ -23,18 +24,15 @@ export function Navbar() {
 
         {/* ── Wordmark ── */}
         <Link href="/" className="flex items-center gap-3 group">
-          {/* SVG icon: stylised shield/eye */}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-neon-green">
-            <path
-              d="M12 2L3 6v6c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V6L12 2z"
-              stroke="#39FF14"
-              strokeWidth="1.5"
-              fill="none"
-            />
-            <circle cx="12" cy="12" r="3" fill="#39FF14" opacity="0.8" />
-            <path d="M12 9v1M12 14v1M9 12h1M14 12h1" stroke="#39FF14" strokeWidth="1" />
-          </svg>
-          <span className="text-base font-bold tracking-[0.2em] text-neon-green flicker">
+          <Image
+            src="/logo.png"
+            alt="SENTINEL logo"
+            width={36}
+            height={36}
+            className="object-contain"
+            priority
+          />
+          <span className="text-base font-bold tracking-[0.2em] text-[#39FF14] flicker">
             SENTINEL
           </span>
         </Link>
@@ -50,7 +48,7 @@ export function Navbar() {
                 className={`
                   px-4 py-1.5 text-xs font-semibold tracking-[0.15em] transition-colors
                   ${active
-                    ? "text-neon-green border-b-2 border-neon-green"
+                    ? "text-[#39FF14] border-b-2 border-[#39FF14]"
                     : "text-[#666] hover:text-[#e8e8e8]"
                   }
                 `}
@@ -78,7 +76,7 @@ export function Navbar() {
       </div>
 
       {/* Bottom accent line */}
-      <div className="h-px bg-neon-green opacity-20" />
+      <div className="h-px bg-[#39FF14] opacity-20" />
     </nav>
   );
 }
