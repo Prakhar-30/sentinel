@@ -1,53 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { useAccount } from "wagmi";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
-// ── Typing animation hook ─────────────────────────────────────────────────────
-
-function useTypingEffect(lines: string[], speed = 38) {
-  const [displayed, setDisplayed] = useState<string[]>([]);
-  const [currentLine, setCurrentLine] = useState(0);
-  const [currentChar, setCurrentChar] = useState(0);
-  const [done, setDone] = useState(false);
-  const linesRef = useRef(lines);
-
-  useEffect(() => {
-    if (done) return;
-    if (currentLine >= linesRef.current.length) { setDone(true); return; }
-
-    // Add new empty line slot only when starting a new line
-    if (currentChar === 0) {
-      setDisplayed(p => {
-        if (p.length <= currentLine) return [...p, ""];
-        return p;
-      });
-      return; // let state settle before typing
-    }
-
-    if (currentChar <= linesRef.current[currentLine].length) {
-      const t = setTimeout(() => {
-        setDisplayed(p => {
-          const n = [...p];
-          n[currentLine] = linesRef.current[currentLine].slice(0, currentChar);
-          return n;
-        });
-        setCurrentChar(c => c + 1);
-      }, speed);
-      return () => clearTimeout(t);
-    } else {
-      const t = setTimeout(() => {
-        setCurrentLine(l => l + 1);
-        setCurrentChar(0);
-      }, 320);
-      return () => clearTimeout(t);
-    }
-  }, [currentLine, currentChar, done, speed]);
-
-  return { displayed, done };
-}
+// ── Interactive terminal (client-only — uses browser APIs) ────────────────────
+const InteractiveTerminal = dynamic(
+  () => import("@/components/InteractiveTerminal"),
+  { ssr: false }
+);
 
 // ── Animated counter ──────────────────────────────────────────────────────────
 
@@ -98,7 +61,6 @@ function DivergenceDemo() {
   const pct = Math.min((bps / 10000) * 100, 100);
   const thresholdPct = (threshold / 10000) * 100;
   const breached = bps >= threshold;
-
   const fillColor = breached ? "#FF2D2D" : bps > 1200 ? "#FFB800" : "#39FF14";
 
   return (
@@ -113,13 +75,8 @@ function DivergenceDemo() {
         </span>
       </div>
 
-      {/* Bar */}
       <div className="divergence-bar">
-        <div
-          className="divergence-fill"
-          style={{ width: `${pct}%`, background: fillColor }}
-        />
-        {/* Threshold marker */}
+        <div className="divergence-fill" style={{ width: `${pct}%`, background: fillColor }} />
         <div
           className="absolute top-0 bottom-0 w-px bg-[#FFB800]"
           style={{ left: `${thresholdPct}%` }}
@@ -205,15 +162,6 @@ const IL_TABLE = [
 export default function LandingPage() {
   const { isConnected } = useAccount();
 
-  const bootLines = [
-    "> SENTINEL v1.0.0 — initialising...",
-    "> loading reactive network interface...",
-    "> connecting to ethereum sepolia...",
-    "> IL protection module: ONLINE",
-    "> awaiting operator input_",
-  ];
-  const { displayed } = useTypingEffect(bootLines, 32);
-
   return (
     <div className="min-h-screen pt-14">
 
@@ -231,24 +179,13 @@ export default function LandingPage() {
         />
 
         {/* Vignette */}
-        <div className="absolute inset-0 bg-radial-[ellipse_at_center] from-transparent via-transparent to-[#080808] opacity-80 pointer-events-none" />
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: "radial-gradient(ellipse at center, transparent 40%, #080808 100%)" }}
+        />
 
-        {/* Terminal boot sequence */}
-        <div className="w-full max-w-2xl mb-10 panel p-5 text-xs text-[#39FF14] space-y-1">
-          <div className="flex items-center gap-2 mb-3 pb-3 border-b border-[#1e1e1e]">
-            <div className="w-2.5 h-2.5 rounded-full bg-[#FF2D2D]" />
-            <div className="w-2.5 h-2.5 rounded-full bg-[#FFB800]" />
-            <div className="w-2.5 h-2.5 rounded-full bg-[#39FF14]" />
-            <span className="ml-2 text-[#444] tracking-widest text-[10px]">SENTINEL — TERMINAL</span>
-          </div>
-          {displayed.map((line, i) => (
-            <div key={i} className="leading-relaxed">
-              {line}
-              {i === displayed.length - 1 && (
-                <span className="inline-block w-2 h-3.5 bg-[#39FF14] ml-0.5 animate-blink align-bottom" />
-              )}
-            </div>
-          ))}
+        {/* ── INTERACTIVE TERMINAL ── */}
+        <div className="w-full max-w-2xl mb-12 z-10">
+          <InteractiveTerminal />
         </div>
 
         {/* Main heading */}
@@ -261,7 +198,7 @@ export default function LandingPage() {
             <span className="text-[#e8e8e8]">STOP LOSING</span>
             <br />
             <span
-              className="text-neon-green"
+              className="text-[#39FF14]"
               style={{ textShadow: "0 0 40px rgba(57,255,20,0.4), 0 0 80px rgba(57,255,20,0.15)" }}
             >
               TO THE POOL
@@ -315,13 +252,13 @@ export default function LandingPage() {
       <section className="border-y-2 border-[#1e1e1e] bg-[#0a0a0a]">
         <div className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-2 md:grid-cols-4 gap-0 divide-x-0 md:divide-x divide-[#1e1e1e]">
           {[
-            { label: "CHAINS SUPPORTED",   value: 1,    suffix: ""    },
+            { label: "CHAINS SUPPORTED",   value: 1,    suffix: ""     },
             { label: "BLOCK LATENCY",      value: 1,    suffix: " blk" },
-            { label: "MANUAL OPS NEEDED",  value: 0,    suffix: ""    },
-            { label: "MAX DIVERGENCE BPS", value: 9999, suffix: ""    },
+            { label: "MANUAL OPS NEEDED",  value: 0,    suffix: ""     },
+            { label: "MAX DIVERGENCE BPS", value: 9999, suffix: ""     },
           ].map(({ label, value, suffix }) => (
             <div key={label} className="px-6 py-3 text-center">
-              <div className="text-2xl font-bold text-neon-green mb-1">
+              <div className="text-2xl font-bold text-[#39FF14] mb-1">
                 <Counter target={value} suffix={suffix} />
               </div>
               <div className="text-[10px] text-[#555] tracking-[0.15em]">{label}</div>
@@ -388,19 +325,14 @@ export default function LandingPage() {
                 key={s.num}
                 className="bg-[#0a0a0a] p-7 relative group hover:bg-[#0f0f0f] transition-colors"
               >
-                {/* Step number */}
                 <div className="text-[60px] font-bold text-[#111] leading-none mb-4 select-none group-hover:text-[#161616] transition-colors">
                   {s.num}
                 </div>
                 <div className="text-xl text-[#39FF14] mb-3">{s.icon}</div>
                 <h3 className="text-sm font-bold tracking-widest text-[#e8e8e8] mb-3">{s.title}</h3>
                 <p className="text-xs text-[#555] leading-relaxed">{s.body}</p>
-
-                {/* Connector arrow */}
                 {i < STEPS.length - 1 && (
-                  <div className="hidden lg:block absolute top-1/2 -right-3 text-[#333] text-lg z-10">
-                    ›
-                  </div>
+                  <div className="hidden lg:block absolute top-1/2 -right-3 text-[#333] text-lg z-10">›</div>
                 )}
               </div>
             ))}
@@ -520,7 +452,10 @@ export default function LandingPage() {
           <div className="text-[10px] tracking-[0.4em] text-[#39FF14] mb-4">READY TO PROTECT YOUR POSITION?</div>
           <h2 className="text-4xl sm:text-5xl font-bold text-[#e8e8e8] mb-4 leading-tight">
             SET YOUR THRESHOLD.<br />
-            <span className="text-neon-green" style={{ textShadow: "0 0 30px rgba(57,255,20,0.35)" }}>
+            <span
+              className="text-[#39FF14]"
+              style={{ textShadow: "0 0 30px rgba(57,255,20,0.35)" }}
+            >
               WALK AWAY.
             </span>
           </h2>
@@ -550,7 +485,7 @@ export default function LandingPage() {
       <footer className="border-t-2 border-[#1a1a1a] py-8 px-4">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 text-[11px] text-[#444]">
           <div className="flex items-center gap-2">
-            <span className="text-neon-green">◈</span>
+            <span className="text-[#39FF14]">◈</span>
             <span className="tracking-widest">SENTINEL v1.0.0</span>
           </div>
           <div className="tracking-widest">
