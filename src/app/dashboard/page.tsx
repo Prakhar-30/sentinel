@@ -10,6 +10,7 @@ import { useDbPositions } from "@/hooks/useDbPositions";
 import { LPPosition, ExitEvent } from "@/hooks/usePositions";
 import { CALLBACK_ABI } from "@/config/abis";
 import { getDestinationChain } from "@/config/chains.config";
+import { supabase } from "@/lib/supabase";
 import {
   shortAddr, formatUnits, bpsToPercent, divergenceColor,
   formatTs, timeAgo, explorerAddr, explorerTx, computeIL,
@@ -48,6 +49,16 @@ function StatusBadge({ status }: { status: LPPosition["status"] }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Action → DB status map
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACTION_STATUS: Record<string, LPPosition["status"]> = {
+  pausePosition:  "Paused",
+  resumePosition: "Active",
+  cancelPosition: "Cancelled",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Position Card
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -55,7 +66,7 @@ function PositionCard({ pos, callbackAddress, chainId, onAction }: {
   pos: LPPosition;
   callbackAddress: string;
   chainId: number;
-  onAction: () => void;
+  onAction: (positionId: number, newStatus: LPPosition["status"]) => void;
 }) {
   const chain           = getDestinationChain(chainId);
   const [busy, setBusy] = useState(false);
@@ -73,7 +84,8 @@ function PositionCard({ pos, callbackAddress, chainId, onAction }: {
     pos.status === "Paused" ? "panel panel-warn"   : "panel";
 
   const callAction = async (fn: string) => {
-    setBusy(true); setErr("");
+    setBusy(true);
+    setErr("");
     try {
       const ethereum = (window as Window & { ethereum?: ethers.Eip1193Provider }).ethereum;
       if (!ethereum) throw new Error("No wallet detected.");
@@ -82,7 +94,24 @@ function PositionCard({ pos, callbackAddress, chainId, onAction }: {
       const cb       = new ethers.Contract(callbackAddress, CALLBACK_ABI, signer);
       const tx       = await cb[fn](pos.id);
       await tx.wait(1);
-      onAction();
+
+      // ── Optimistic DB update — don't wait for sync ──────────────
+      // This makes the UI reflect the change immediately after tx confirms
+      // instead of waiting for the backend sync to pick up the event.
+      const newStatus = ACTION_STATUS[fn];
+      if (newStatus) {
+        await supabase
+          .from("positions")
+          .update({
+            status:     newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("position_id", pos.id)
+          .eq("callback_address", callbackAddress.toLowerCase());
+
+        // Tell parent to update local state immediately
+        onAction(pos.id, newStatus);
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message.slice(0, 100) : "Transaction failed");
     } finally {
@@ -139,17 +168,45 @@ function PositionCard({ pos, callbackAddress, chainId, onAction }: {
 
       {pos.status === "Active" && (
         <div className="flex gap-2">
-          <button className="btn-sentinel btn-sentinel-ghost text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("pausePosition")} disabled={busy}>PAUSE</button>
-          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>CANCEL</button>
+          <button
+            className="btn-sentinel btn-sentinel-ghost text-[10px] px-3 py-1.5 flex-1"
+            onClick={() => callAction("pausePosition")}
+            disabled={busy}
+          >
+            {busy ? "..." : "PAUSE"}
+          </button>
+          <button
+            className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1"
+            onClick={() => callAction("cancelPosition")}
+            disabled={busy}
+          >
+            {busy ? "..." : "CANCEL"}
+          </button>
         </div>
       )}
       {pos.status === "Paused" && (
         <div className="flex gap-2">
-          <button className="btn-sentinel text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("resumePosition")} disabled={busy}>RESUME</button>
-          <button className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1" onClick={() => callAction("cancelPosition")} disabled={busy}>CANCEL</button>
+          <button
+            className="btn-sentinel text-[10px] px-3 py-1.5 flex-1"
+            onClick={() => callAction("resumePosition")}
+            disabled={busy}
+          >
+            {busy ? "..." : "RESUME"}
+          </button>
+          <button
+            className="btn-sentinel btn-sentinel-danger text-[10px] px-3 py-1.5 flex-1"
+            onClick={() => callAction("cancelPosition")}
+            disabled={busy}
+          >
+            {busy ? "..." : "CANCEL"}
+          </button>
         </div>
       )}
-      {busy && <div className="text-[10px] text-[#FFB800] animate-pulse tracking-widest mt-2">⟳ PROCESSING...</div>}
+      {busy && (
+        <div className="text-[10px] text-[#FFB800] animate-pulse tracking-widest mt-2">
+          ⟳ PROCESSING...
+        </div>
+      )}
     </div>
   );
 }
@@ -217,12 +274,9 @@ export default function DashboardPage() {
   const chainId = useChainId();
   const chain   = getDestinationChain(chainId);
 
-  // ── Both args: wallet + chainId ────────────────────────────────────────
   const { addresses, loaded } = useContractStore(address, chainId);
+  const [filter, setFilter]   = useState<FilterTab>("all");
 
-  const [filter, setFilter] = useState<FilterTab>("all");
-
-  // ── DB-backed hook — syncs chain → Supabase then reads DB ─────────────
   const { positions, exitHistory, loading, error, refresh } = useDbPositions(
     addresses?.callbackAddress,
     addresses?.callbackDeployBlock,
@@ -230,11 +284,28 @@ export default function DashboardPage() {
     address,
   );
 
-  const filtered = filter === "all"
-    ? positions
-    : positions.filter(p => p.status.toLowerCase() === filter);
+  // Local positions state so optimistic updates apply instantly
+  const [localPositions, setLocalPositions] = useState<LPPosition[] | null>(null);
+  const displayPositions = localPositions ?? positions;
 
-  // ── Guard: wallet not connected ───────────────────────────────────────
+  // Keep local state in sync when a full refresh completes
+  const handleRefresh = async () => {
+    setLocalPositions(null); // clear optimistic state, let DB result take over
+    await refresh();
+  };
+
+  // Called by PositionCard after a tx confirms + DB update
+  const handleAction = (positionId: number, newStatus: LPPosition["status"]) => {
+    const base = localPositions ?? positions;
+    setLocalPositions(
+      base.map(p => p.id === positionId ? { ...p, status: newStatus } : p)
+    );
+  };
+
+  const filtered = filter === "all"
+    ? displayPositions
+    : displayPositions.filter(p => p.status.toLowerCase() === filter);
+
   if (!isConnected) {
     return (
       <div className="min-h-screen pt-14 flex items-center justify-center px-4">
@@ -248,7 +319,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ── Guard: still loading from DB ──────────────────────────────────────
   if (!loaded) {
     return (
       <div className="min-h-screen pt-14 flex items-center justify-center">
@@ -257,7 +327,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ── Guard: no contracts in DB or LS ───────────────────────────────────
   if (!addresses) {
     return (
       <div className="min-h-screen pt-14 flex items-center justify-center px-4">
@@ -273,7 +342,6 @@ export default function DashboardPage() {
     );
   }
 
-  // ── Main dashboard ────────────────────────────────────────────────────
   return (
     <div className="min-h-screen pt-14 pb-20">
 
@@ -288,7 +356,11 @@ export default function DashboardPage() {
             <div className="text-[10px] text-[#444] font-mono hidden sm:block">
               CB: <span className="text-[#666]">{shortAddr(addresses.callbackAddress)}</span>
             </div>
-            <button className="btn-sentinel btn-sentinel-ghost text-[10px] px-4 py-2" onClick={refresh} disabled={loading}>
+            <button
+              className="btn-sentinel btn-sentinel-ghost text-[10px] px-4 py-2"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
               {loading ? "⟳ SYNCING..." : "↺ REFRESH"}
             </button>
             <Link href="/protect" className="btn-sentinel text-[10px] px-4 py-2">+ NEW POSITION</Link>
@@ -298,16 +370,16 @@ export default function DashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
 
-        <StatsBar positions={positions} />
+        <StatsBar positions={displayPositions} />
 
-        {positions.some(p => p.status === "Active") && (
+        {displayPositions.some(p => p.status === "Active") && (
           <div className="flex items-center gap-2 text-[11px] text-[#39FF14] mb-6 tracking-widest">
             <span className="pulse-dot" />
-            SENTINEL ACTIVE — MONITORING {positions.filter(p => p.status === "Active").length} POSITION(S)
+            SENTINEL ACTIVE — MONITORING {displayPositions.filter(p => p.status === "Active").length} POSITION(S)
           </div>
         )}
 
-        {loading && positions.length > 0 && (
+        {loading && displayPositions.length > 0 && (
           <div className="flex items-center gap-2 text-[11px] text-[#FFB800] mb-4 tracking-widest animate-pulse">
             ⟳ SYNCING WITH CHAIN...
           </div>
@@ -327,7 +399,10 @@ export default function DashboardPage() {
                   key={f}
                   onClick={() => setFilter(f)}
                   className={`text-[10px] px-3 py-1 tracking-widest transition-colors border
-                    ${filter === f ? "border-[#39FF14] text-[#39FF14]" : "border-[#1a1a1a] text-[#444] hover:border-[#333] hover:text-[#666]"}`}
+                    ${filter === f
+                      ? "border-[#39FF14] text-[#39FF14]"
+                      : "border-[#1a1a1a] text-[#444] hover:border-[#333] hover:text-[#666]"
+                    }`}
                 >
                   {f.toUpperCase()}
                 </button>
@@ -335,11 +410,15 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {loading && positions.length === 0 ? (
-            <div className="panel p-12 text-center text-[#444] text-xs tracking-widest animate-pulse">SYNCING FROM CHAIN...</div>
+          {loading && displayPositions.length === 0 ? (
+            <div className="panel p-12 text-center text-[#444] text-xs tracking-widest animate-pulse">
+              SYNCING FROM CHAIN...
+            </div>
           ) : filtered.length === 0 ? (
             <div className="panel p-12 text-center text-[#333] text-xs tracking-widest">
-              {filter === "all" ? "NO POSITIONS FOUND — REGISTER ONE ON THE PROTECT PAGE" : `NO ${filter.toUpperCase()} POSITIONS`}
+              {filter === "all"
+                ? "NO POSITIONS FOUND — REGISTER ONE ON THE PROTECT PAGE"
+                : `NO ${filter.toUpperCase()} POSITIONS`}
             </div>
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -349,7 +428,7 @@ export default function DashboardPage() {
                   pos={pos}
                   callbackAddress={addresses.callbackAddress}
                   chainId={chainId}
-                  onAction={refresh}
+                  onAction={handleAction}
                 />
               ))}
             </div>
@@ -365,11 +444,17 @@ export default function DashboardPage() {
             </span>
           </div>
           {exitHistory.length === 0 ? (
-            <div className="panel p-8 text-center text-[#333] text-xs tracking-widest">NO EXITS RECORDED YET</div>
+            <div className="panel p-8 text-center text-[#333] text-xs tracking-widest">
+              NO EXITS RECORDED YET
+            </div>
           ) : (
             <div className="panel overflow-hidden">
               <div className="grid grid-cols-5 gap-2 px-4 py-2 border-b border-[#1a1a1a] text-[10px] text-[#444] tracking-widest">
-                <span>POS ID</span><span>PAIR</span><span>LP BURNED</span><span>RECEIVED (T0 / T1)</span><span>WHEN</span>
+                <span>POS ID</span>
+                <span>PAIR</span>
+                <span>LP BURNED</span>
+                <span>RECEIVED (T0 / T1)</span>
+                <span>WHEN</span>
               </div>
               {exitHistory.map((ev, i) => (
                 <ExitRow key={i} ev={ev} explorerBase={chain.explorerUrl} />

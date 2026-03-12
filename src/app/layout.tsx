@@ -3,8 +3,7 @@ import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Web3Provider } from "@/providers/Web3Provider";
 import { Navbar } from "@/components/Navbar";
-
-// ── Fonts ─────────────────────────────────────────────────────────────────────
+import { UsernameGate } from "@/components/username/UsernameGate";
 
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ["latin"],
@@ -18,8 +17,6 @@ const spaceGrotesk = Space_Grotesk({
   variable: "--font-sans",
 });
 
-// ── Metadata ──────────────────────────────────────────────────────────────────
-
 export const metadata: Metadata = {
   title: "SENTINEL — Automated IL Protection",
   description:
@@ -32,17 +29,17 @@ export const metadata: Metadata = {
   },
 };
 
-// ── Root layout ───────────────────────────────────────────────────────────────
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${ibmPlexMono.variable} ${spaceGrotesk.variable}`}>
       <body className="bg-[#080808] text-[#e8e8e8] font-mono antialiased">
         <Web3Provider>
-          {/* Scanline overlay — subtle CRT texture */}
-          <div className="fixed inset-0 pointer-events-none z-50 scanlines" aria-hidden />
-          <Navbar />
-          <main>{children}</main>
+          {/* UsernameGate — shows modal on first connect if no username set */}
+          <UsernameGate>
+            <div className="fixed inset-0 pointer-events-none z-50 scanlines" aria-hidden />
+            <Navbar />
+            <main>{children}</main>
+          </UsernameGate>
         </Web3Provider>
       </body>
     </html>

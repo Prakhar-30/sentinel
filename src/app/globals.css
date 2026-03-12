@@ -313,3 +313,13 @@ body {
   background: rgba(57, 255, 20, 0.2);
   color: var(--neon-green);
 }
+/* ── Marquee / ticker animation ─────────────────────────────────────────── */
+
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-33.333%); }
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+}
